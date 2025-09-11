@@ -7,7 +7,7 @@
  * 
  * 
  * Version: 1-0-0
- * Released: 09/11/25
+ * Released: 06/01/25
  * 
  * Audio Ducking Macro
  * 
@@ -101,6 +101,7 @@ async function init(){
 
   mode = value && value != '' ? value : 'presenters'
 
+  xapi.Command.UserInterface.Extensions.Widget.SetValue({WidgetId: config.panelId, Value: mode})
 
   applyMode();
 
@@ -111,14 +112,20 @@ async function applyMode(){
   console.log('Mode:', mode);
   const inCall = checkInCall();
   if(!inCall) return
+
   if(mode == 'presenters') {
     stopMonitor();
     duckMics();
     return
   }
 
-  if(mode == 'audience') return unduckMics();
-  if(mode == "presentersAndAudience") return startMonitor();
+  if(mode == 'presentersAndAudience') {
+     stopMonitor();
+     unduckMics();
+    return
+  }
+
+  if(mode == "autoDuck") return startMonitor();
 
 }
 
@@ -217,7 +224,7 @@ function startMonitor() {
 }
 
 function stopMonitor() {
-  console.log('Stopping Audio');
+  console.log('Stopping Audio Monitor');
   if (listener) {
     listener();
     listener = () => void 0;
@@ -352,11 +359,11 @@ async function createPanel(){
                   <Name>Presenters Only</Name>
                 </Value>
                 <Value>
-                  <Key>audience</Key>
-                  <Name>Audience Only</Name>
+                  <Key>presentersAndAudience</Key>
+                  <Name>Presenters And Audience</Name>
                 </Value>
                 <Value>
-                  <Key>presentersAndAudience</Key>
+                  <Key>autoDuck</Key>
                   <Name>Auto Adjust</Name>
                 </Value>
               </ValueSpace>

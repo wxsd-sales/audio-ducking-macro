@@ -6,10 +6,18 @@
  *                    	Cisco Systems
  * 
  * 
- * Version: 1-0-0
- * Released: 06/01/25
+ * Version: 1-1-0
+ * Released: 10/06/25
  * 
- * Audio Ducking Macro
+ * Audio Ducking Macro:
+ * 
+ * This macro monitors the vumeter levels of an incoming mic
+ * and automatically ducks (sets a low Gain or Level) of other
+ * mics when the monitors mic is considered high.
+ * 
+ * This is useful when you are using voice lift in a room and 
+ * would like to duck any ceiling mics while a person using 
+ * a voice lift mic is talking.
  * 
  * Full Readme, source code and license details for this macro 
  * are available GitHub:
@@ -25,19 +33,21 @@ import xapi from 'xapi';
 **********************************************************/
 
 const config = {
-  button: {
-    name: 'Audio Modes',
-    color: '#f58142',
-    icon: 'Sliders'
+  button: {                     // Customise the macros control button name, color and icon
+    name: 'Audio Modes',        // Button and Panel name
+    color: '#f58142',           // Button Color
+    icon: 'Sliders'             // Button Icon
   },
-  mics: [
-    { ConnectorType: 'Microphone', ConnectorId: 1 },
-    //{ ConnectorType: 'USBMicrophone', ConnectorId: 1 },
-    //{ ConnectorType: 'Ethernet', ConnectorId: 1, SubId: 1 },
-    //{ ConnectorType: 'Ethernet', ConnectorId: 2, SubId: 3 }
+  modeNames: {                  // Customise the macros mode names
+    autoDuck: 'Auto Adjust Audience',
+    presentersOnly: 'Presenters Only',
+    presentersAndAudience: 'Presenters & Audience'
+  },
+  defaultMode: 'autoDuck',      // Specify the default mode
+  mics: [                       // Specify which mics should be monitors
+    { ConnectorType: 'Microphone', ConnectorId: 1 }   // { ConnectorType: 'Microphone' | 'Ethernet' | 'USBMicrophone'}
   ],
-  duck: [
-    //{ ConnectorType: 'Microphone', ConnectorId: 1 },
+  duck: [                       // Specify which mics should be ducked or unducked
     { ConnectorType: 'Ethernet', ConnectorId: 1, SubId: 1 },
     { ConnectorType: 'Ethernet', ConnectorId: 2, SubId: 1 },
     { ConnectorType: 'Ethernet', ConnectorId: 3, SubId: 1 },
@@ -45,18 +55,18 @@ const config = {
     { ConnectorType: 'Ethernet', ConnectorId: 5, SubId: 1 },
     { ConnectorType: 'Ethernet', ConnectorId: 6, SubId: 1 }
   ],
-  threshold: {
+  threshold: {                  // Specify the thresholds in which the monitors mic is considered high or low
     high: 30,
     low: 25
   },
-  levels: {
+  levels: {                     // Specify the Gain/Levels which should be set ducked or unducked
     duck: 0,
     unduck: 30
   },
   unduck:{
-    timeout: 5 // Unduck mics after 5 seconds
+    timeout: 2                  // Specify the duration where the monitors mic is low before unducking
   },
-  samples: 4,
+  samples: 4,                   // The number of samples taken every 100ms, 4 samples at 100ms = 400ms
   panelId: 'audioDucking'
 }
 
@@ -68,11 +78,7 @@ const config = {
 
 
 const startVuMeterConnectors = consolidateConnectors(config.mics);
-console.log('startVuMeterConnectors:', startVuMeterConnectors);
-
 const micNames = createMicStrings(config.mics);
-console.log('micNames:', micNames);
-
 const duck = config.duck.map(({ ConnectorType, ConnectorId, SubId }) => ConnectorType + '.' + ConnectorId + (SubId ? '.' + SubId : ''));
 
 let ducked = false;
@@ -80,8 +86,9 @@ let unduckTimer;
 let listener;
 let micLevels;
 let mode;
+let callId;
 
-init();
+setTimeout(init,3000);
 
 async function init(){
 
@@ -90,8 +97,19 @@ async function init(){
 
   xapi.Event.UserInterface.Extensions.Widget.Action.on(processActions);
 
-  xapi.Status.Call.on(({ ghost, Status }) => {
-    if (Status && Status == 'Connected') return applyMode();
+  xapi.Status.Call.on(({ ghost, Status, id }) => {
+
+    if (Status && Status == 'Connected' && callId != id) {
+      console.log('New Call Connected - CallId:', id, '- Setting Mode:', config.defaultMode)
+      callId = id;
+      mode = config.defaultMode;
+      xapi.Command.UserInterface.Extensions.Widget.SetValue({WidgetId: config.panelId, Value: mode})
+      applyMode();
+
+      alert(`New Call Detected<br>Setting Room Mode To: ${config.modeNames[mode]}<br>Tap On [${config.button.name}] Button To select other modes.`)
+      return
+    }
+
     if (ghost) return stopMonitor();
   })
 
@@ -99,7 +117,7 @@ async function init(){
   const selection = widgets.find(widget => widget.WidgetId == config.panelId);
   const value = selection?.Value;
 
-  mode = value && value != '' ? value : 'presenters'
+  mode = value && value != '' ? value : config.defaultMode;
 
   xapi.Command.UserInterface.Extensions.Widget.SetValue({WidgetId: config.panelId, Value: mode})
 
@@ -109,11 +127,11 @@ async function init(){
 
 
 async function applyMode(){
-  console.log('Mode:', mode);
-  const inCall = checkInCall();
+  console.log('Applying Mode:', mode);
+  const inCall = await checkInCall();
   if(!inCall) return
 
-  if(mode == 'presenters') {
+  if(mode == 'presentersOnly') {
     stopMonitor();
     duckMics();
     return
@@ -149,15 +167,21 @@ function createMicLevels(samples){
   return result
 }
 
+//processAudioEvents({})
 
 function processAudioEvents(event) {
 
   const newLevels = flattenObject(event)
 
+  console.log('Levels:', micLevels)
+  console.log('newLevels:', newLevels)
+
   for (const [micName, levels] of Object.entries(micLevels)) {
     micLevels[micName].shift();
     micLevels[micName].push(newLevels?.[micName] ?? levels[levels.length - 1]);
   }
+
+    console.log('Levels:', micLevels)
 
   let aboveHighThreshold = false;
   let aboveLowThreshold = false;
@@ -330,12 +354,23 @@ function createMicStrings(inputArray) {
 
 }
 
+function alert(Text="", Duration = 10){
+  console.log('Displaying Alert:', Text)
+  xapi.Command.UserInterface.Message.Alert.Display(
+    { Duration, Target: "Controller", Text, Title: config.button.name });
+}
+
 
 async function createPanel(){
   const {icon, color, name}= config.button;
   const panelId = config.panelId;
 
-  const order = await panelOrder(panelId)
+  const order = await panelOrder(panelId);
+
+  const values = Object.keys(config.modeNames).map(mode=>{
+    return `<Value><Key>${mode}</Key><Name>${config.modeNames[mode].replace(/&/g, "&amp;")}</Name></Value>`
+  });
+
   const panel = `
     <Extensions>
       <Panel>
@@ -354,18 +389,7 @@ async function createPanel(){
               <Type>GroupButton</Type>
               <Options>size=4;columns=1</Options>
               <ValueSpace>
-                <Value>
-                  <Key>presenters</Key>
-                  <Name>Presenters Only</Name>
-                </Value>
-                <Value>
-                  <Key>presentersAndAudience</Key>
-                  <Name>Presenters And Audience</Name>
-                </Value>
-                <Value>
-                  <Key>autoDuck</Key>
-                  <Name>Auto Adjust</Name>
-                </Value>
+                ${values}
               </ValueSpace>
             </Widget>
           </Row>

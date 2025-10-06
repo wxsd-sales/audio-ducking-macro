@@ -128,12 +128,12 @@ flowchart LR
          high: 30,
          low: 25
        },
-       levels: {                     // Specify the Gain/Levels which should be set ducked or unducked
+       levels: {                     // Specify the Gain/Levels which should be set when ducked or unducked
          duck: 0,
          unduck: 30
        },
        unduck:{
-         timeout: 2                  // Specify the duration where the monitors mic is low before unducking
+         timeout: 2                  // Specify the duration where the monitored mics are low before unducking
        },
        samples: 4,                   // The number of samples taken every 100ms, 4 samples at 100ms = 400ms
        panelId: 'audioDucking'

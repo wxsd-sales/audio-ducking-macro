@@ -11,19 +11,13 @@ This example macro monitors the VuMeter levels of an incoming mic and automatica
 Voice Lift/Sound Reinforcement is a solution which enables every participant in a space to hear an microphone holding active speaker by broadcasting their voice out an in room speaker system. This solution can sometimes create issues in collaboration spaces where the Collab Devices microphones are mounted in the ceiling along side the Voice Lift audio system as the Ceiling Microphones may pick up the voice lift audio and well as the active speakers direct microphone signal. 
 
 
+### Project Overview
+
 ```mermaid
-flowchart TB
-    A("Person talks into microphone<br>🧑💬🎙️〰️〰️〰️") --> B["Audio goes to DSP"]
-    B --> C1["Audio to Ceiling Speakers<br>🔊🔊🔊🔊🔊🔊🔊🔊🔊"] & C2["Audio to Cisco Collab Device<br>💬 〰️〰️〰️"]
-    C1 --> D["Ceiling Speakers broadcast voice in room as voice lift<br>💬 〰️〰️〰️"]
-    D --> E["Cisco Collab Device microphone captures voice lift sound<br>💬🎙️〰️〰️〰️"]
-    E --> n2["💬 Double Audio Signal 💬"]
-    C2 --> n2
-
-    n2@{ shape: paper-tape}
-    style n2 fill:transparent,stroke:#D50000
+graph LR
+    A[Start] --> B[Process]
+    B --> C[End]
 ```
-
 
 ```mermaid
 ---

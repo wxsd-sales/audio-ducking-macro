@@ -1,0 +1,50 @@
+name: Generate Mermaid SVGs and Update README
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'diagrams/**/*.mmd'
+      - 'README.md'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Mermaid CLI
+        run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Create images directory
+        run: mkdir -p images
+
+      - name: Convert MMD to SVG and Update README
+        run: |
+          for file in diagrams/*.mmd; do
+            filename=$(basename "$file" .mmd)
+            
+            # 1. Generate the SVG
+            mmdc -i "$file" -o "images/${filename}.svg" -t neutral
+            
+            # 2. Define the injection string (The SVG for mobile)
+            # We use a <details> block to keep it tidy on web
+            CONTENT="<details><summary>📱 View for Mobile</summary>\n\n![${filename}](./images/${filename}.svg)\n\n</details>"
+            
+            # 3. Use sed to replace content between the specific tags
+            # This looks for the START and END tags for this specific filename
+            sed -i "//,// {
+                //! { //! d; }
+                //a $CONTENT
+            }" README.md
+          done
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add images/*.svg README.md
+          git commit -m "docs: sync mermaid svgs for mobile" || exit 0
+          git push

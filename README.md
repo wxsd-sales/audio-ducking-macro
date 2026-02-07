@@ -13,11 +13,13 @@ Voice Lift/Sound Reinforcement is a solution which enables every participant in 
 
 ### Project Overview
 
-```mermaid
-graph LR
-    A[Start] --> B[Process]
-    B --> C[End]
-```
+
+<details><summary>📱 View for Mobile</summary>
+
+![overview](./images/overview.svg)
+
+</details>
+
 
 ```mermaid
 ---

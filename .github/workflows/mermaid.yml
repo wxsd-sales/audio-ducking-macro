@@ -29,15 +29,27 @@ jobs:
           for file in diagrams/*.mmd; do
             filename=$(basename "$file" .mmd)
             
-            # Use the -p flag to pass the puppeteer config
-            mmdc -p puppeteer-config.json -i "$file" -o "images/${filename}.svg" -t neutral
+            # 1. Generate SVG (The -p flag handles the sandbox issue)
+            if ! mmdc -p puppeteer-config.json -i "$file" -o "images/${filename}.svg" -t neutral; then
+              echo "⚠️ Warning: Failed to convert $file. Skipping..."
+              continue
+            fi
             
-            CONTENT="<details><summary>📱 View for Mobile</summary>\n\n![${filename}](./images/${filename}.svg)\n\n</details>"
+            # 2. Prepare Injection Content
+            # Note: We escape newlines for sed
+            CONTENT="<details><summary>📱 View for Mobile</summary>\\n\\n![${filename}](./images/${filename}.svg)\\n\\n</details>"
             
-            sed -i "//,// {
-                //! { //! d; }
-                //a $CONTENT
-            }" README.md
+            # 3. Robust Injection
+            # Only attempt 'sed' if the tag actually exists in the file
+            if grep -q "" README.md; then
+              echo "Injecting SVG link for $filename..."
+              sed -i "//,// {
+                  //! { //! d; }
+                  //a $CONTENT
+              }" README.md
+            else
+              echo "⚠️ Warning: Placeholder for $filename not found in README. Skipping injection."
+            fi
           done
 
       - name: Commit and Push changes

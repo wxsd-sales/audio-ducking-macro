@@ -18,6 +18,9 @@ jobs:
       - name: Install Mermaid CLI
         run: npm install -g @mermaid-js/mermaid-cli
 
+      - name: Create Puppeteer Config
+        run: echo '{"args":["--no-sandbox", "--disable-setuid-sandbox"]}' > puppeteer-config.json
+
       - name: Create images directory
         run: mkdir -p images
 
@@ -26,15 +29,11 @@ jobs:
           for file in diagrams/*.mmd; do
             filename=$(basename "$file" .mmd)
             
-            # 1. Generate the SVG
-            mmdc -i "$file" -o "images/${filename}.svg" -t neutral
+            # Use the -p flag to pass the puppeteer config
+            mmdc -p puppeteer-config.json -i "$file" -o "images/${filename}.svg" -t neutral
             
-            # 2. Define the injection string (The SVG for mobile)
-            # We use a <details> block to keep it tidy on web
             CONTENT="<details><summary>📱 View for Mobile</summary>\n\n![${filename}](./images/${filename}.svg)\n\n</details>"
             
-            # 3. Use sed to replace content between the specific tags
-            # This looks for the START and END tags for this specific filename
             sed -i "//,// {
                 //! { //! d; }
                 //a $CONTENT
@@ -46,5 +45,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add images/*.svg README.md
-          git commit -m "docs: sync mermaid svgs for mobile" || exit 0
+          # Remove the temporary config before committing
+          rm puppeteer-config.json
+          git commit -m "docs: sync mermaid svgs for mobile (sandbox fix)" || exit 0
           git push

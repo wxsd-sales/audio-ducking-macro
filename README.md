@@ -27,7 +27,6 @@ flowchart TB
 ```
 
 ```mermaid
-
 flowchart TB
       A("Person talks into microphone<br>🧑💬🎙️〰️〰️〰️") --> B["Audio goes to DSP"]
       B --> C1["Audio to Ceiling Speakers<br>🔊🔊🔊🔊🔊🔊🔊🔊🔊"] & C2["Audio to Cisco Collab Device<br>💬 〰️〰️〰️"]

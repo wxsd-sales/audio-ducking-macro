@@ -117,10 +117,21 @@ async function init() {
     if (ghost) return stopMonitor();
   });
 
-  xapi.Status.MicrosoftTeams.Calling.InCall.on(async (value) => {
+  xapi.Status.MicrosoftTeams.Calling.InCall.on((value) => {
     console.log('MTR State Change:', value)
-    const inCall = await checkInCall();
+    const inCall = value == 'True';
 
+    if(inCall) {
+      console.log('New MTR Called Detected - Setting Mode:', config.defaultMode)
+      mode = config.defaultMode;
+      xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
+      applyMode();
+
+      alert(`New MTR Call Detected<br>Setting Room Mode To: ${config.modeNames[mode]}<br>Tap On [${config.button.name}] Button To select other modes.`)
+      return
+    } else {
+      return stopMonitor();
+    }
 
   })
 

@@ -13,29 +13,30 @@ Voice Lift/Sound Reinforcement is a solution which enables every participant in 
 
 ### Project Overview
 
-
-<details><summary>📱 View for Mobile</summary>
-
-![overview](./images/overview.svg)
-
-</details>
-
-
 ```mermaid
----
-config:
-  layout: fixed
----
 flowchart TB
     A("Person talks into microphone<br>🧑💬🎙️〰️〰️〰️") --> B["Audio goes to DSP"]
     B --> C1["Audio to Ceiling Speakers<br>🔊🔊🔊🔊🔊🔊🔊🔊🔊"] & C2["Audio to Cisco Collab Device<br>💬 〰️〰️〰️"]
     C1 --> D["Ceiling Speakers broadcast voice in room as voice lift<br>💬 〰️〰️〰️"]
-    D --x E["Cisco Collab Device microphone captures voice lift sound<br>💬🎙️〰️〰️〰️"]
-    C2 --> n2["💬 Single Audio Signal"]
-    n2@{ shape: rounded}
-    style n2 fill:transparent,stroke:#00C853
-    linkStyle 4 stroke:#D50000,fill:none
+    D --> E["Cisco Collab Device microphone captures voice lift sound<br>💬🎙️〰️〰️〰️"]
+    E --> n2["💬 Double Audio Signal 💬"]
+    C2 --> n2
 
+    n2@{ shape: paper-tape}
+    style n2 fill:transparent,stroke:#D50000
+```
+
+```mermaid
+
+flowchart TB
+      A("Person talks into microphone<br>🧑💬🎙️〰️〰️〰️") --> B["Audio goes to DSP"]
+      B --> C1["Audio to Ceiling Speakers<br>🔊🔊🔊🔊🔊🔊🔊🔊🔊"] & C2["Audio to Cisco Collab Device<br>💬 〰️〰️〰️"]
+      C1 --> D["Ceiling Speakers broadcast voice in room as voice lift<br>💬 〰️〰️〰️"]
+      D --x E["Cisco Collab Device microphone captures voice lift sound<br>💬🎙️〰️〰️〰️"]
+      C2 --> n2["💬 Single Audio Signal"]
+      n2@{ shape: rounded}
+      style n2 fill:transparent,stroke:#00C853
+      linkStyle 4 stroke:#D50000,fill:none
 ```
 
 This macro monitors the incoming microphone audio signal and lowers the gain of the ceiling microphones gain to prevent that audio from being captured and so therefore only the microphone audio source is sent into the call.
@@ -43,11 +44,6 @@ This macro monitors the incoming microphone audio signal and lowers the gain of 
 ### Flow Diagram
 
 ```mermaid
----
-config:
-  layout: dagre
-  theme: mc
----
 flowchart LR
     subgraph Vumeter_Event_Flow["Process Audio Events"]
         D(["Audio Connector VuMeter Event Generated"])
@@ -124,12 +120,12 @@ flowchart LR
          high: 30,
          low: 25
        },
-       levels: {                     // Specify the Gain/Levels which should be set when ducked or unducked
+       levels: {                     // Specify the Gain/Levels which should be set ducked or unducked
          duck: 0,
          unduck: 30
        },
        unduck:{
-         timeout: 2                  // Specify the duration where the monitored mics are low before unducking
+         timeout: 2                  // Specify the duration where the monitors mic is low before unducking
        },
        samples: 4,                   // The number of samples taken every 100ms, 4 samples at 100ms = 400ms
        panelId: 'audioDucking'

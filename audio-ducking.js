@@ -35,8 +35,9 @@ import xapi from 'xapi';
 const config = {
   button: {                     // Customise the macros control button name, color and icon
     name: 'Audio Modes',        // Button and Panel name
-    color: '#f58142',           // Button Color
-    icon: 'Sliders'             // Button Icon
+    color: '#f58142',         // Button Color
+    icon: 'Sliders',            // Button Icon
+    location: 'CallControls'    // Button Location
   },
   modeNames: {                  // Customise the macros mode names
     autoDuck: 'Auto Adjust Audience',
@@ -44,7 +45,7 @@ const config = {
     presentersAndAudience: 'Presenters & Audience'
   },
   defaultMode: 'autoDuck',      // Specify the default mode
-  mics: [                       // Specify which mics should be monitors
+  mics: [                       // Specify which mics should be monitored
     { ConnectorType: 'Microphone', ConnectorId: 1 }   // { ConnectorType: 'Microphone' | 'Ethernet' | 'USBMicrophone'}
   ],
   duck: [                       // Specify which mics should be ducked or unducked
@@ -63,7 +64,7 @@ const config = {
     duck: 0,
     unduck: 30
   },
-  unduck:{
+  unduck: {
     timeout: 2                  // Specify the duration where the monitors mic is low before unducking
   },
   samples: 4,                   // The number of samples taken every 100ms, 4 samples at 100ms = 400ms
@@ -88,9 +89,9 @@ let micLevels;
 let mode;
 let callId;
 
-setTimeout(init,3000);
+setTimeout(init, 3000);
 
-async function init(){
+async function init() {
 
   micLevels = createMicLevels(config.samples)
   await createPanel();
@@ -103,7 +104,7 @@ async function init(){
       console.log('New Call Connected - CallId:', id, '- Setting Mode:', config.defaultMode)
       callId = id;
       mode = config.defaultMode;
-      xapi.Command.UserInterface.Extensions.Widget.SetValue({WidgetId: config.panelId, Value: mode})
+      xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
       applyMode();
 
       alert(`New Call Detected<br>Setting Room Mode To: ${config.modeNames[mode]}<br>Tap On [${config.button.name}] Button To select other modes.`)
@@ -111,6 +112,13 @@ async function init(){
     }
 
     if (ghost) return stopMonitor();
+  });
+
+  xapi.Status.MicrosoftTeams.Calling.InCall.on(async (value) => {
+    console.log('MTR State Change:', value)
+    const inCall = await checkInCall();
+
+
   })
 
   const widgets = await xapi.Status.UserInterface.Extensions.Widget.get()
@@ -119,47 +127,48 @@ async function init(){
 
   mode = value && value != '' ? value : config.defaultMode;
 
-  xapi.Command.UserInterface.Extensions.Widget.SetValue({WidgetId: config.panelId, Value: mode})
+  xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
 
   applyMode();
 
 }
 
 
-async function applyMode(){
+async function applyMode() {
   console.log('Applying Mode:', mode);
   const inCall = await checkInCall();
-  if(!inCall) return
+  if (!inCall) return
 
-  if(mode == 'presentersOnly') {
+  if (mode == 'presentersOnly') {
     stopMonitor();
     duckMics();
     return
   }
 
-  if(mode == 'presentersAndAudience') {
-     stopMonitor();
-     unduckMics();
+  if (mode == 'presentersAndAudience') {
+    stopMonitor();
+    unduckMics();
     return
   }
 
-  if(mode == "autoDuck") return startMonitor();
+  if (mode == "autoDuck") return startMonitor();
 
 }
 
-function processActions({Type, Value, WidgetId}){
-  if(Type != 'released') return
-  if(WidgetId != config.panelId) return
+function processActions({ Type, Value, WidgetId }) {
+  if (Type != 'released') return
+  if (WidgetId != config.panelId) return
   mode = Value
   applyMode();
 }
 
 async function checkInCall() {
+  const mtrCall = await xapi.Status.MicrosoftTeams.Calling.InCall.get()
   const call = await xapi.Status.Call.get();
-  return call?.[0]?.Status == 'Connected'
+  return call?.[0]?.Status == 'Connected' || mtrCall == 'True'
 }
 
-function createMicLevels(samples){
+function createMicLevels(samples) {
   const result = {}
   for (const key of micNames) {
     result[key] = new Array(samples).fill(0);
@@ -167,7 +176,6 @@ function createMicLevels(samples){
   return result
 }
 
-//processAudioEvents({})
 
 function processAudioEvents(event) {
 
@@ -181,7 +189,7 @@ function processAudioEvents(event) {
     micLevels[micName].push(newLevels?.[micName] ?? levels[levels.length - 1]);
   }
 
-    console.log('Levels:', micLevels)
+  console.log('Levels:', micLevels)
 
   let aboveHighThreshold = false;
   let aboveLowThreshold = false;
@@ -197,7 +205,7 @@ function processAudioEvents(event) {
   }
 
   if (aboveHighThreshold) {
-    if(unduckTimer) console.error("Above Average")
+    if (unduckTimer) console.error("Above Average")
     clearTimeout(unduckTimer)
     unduckTimer = null
     duckMics();
@@ -205,10 +213,10 @@ function processAudioEvents(event) {
 
   if (!aboveLowThreshold && !unduckTimer) {
     console.warn("Below Average")
-    unduckTimer = setTimeout(()=>{
+    unduckTimer = setTimeout(() => {
       console.log('Unducking Timer')
       unduckMics();
-      }, config.unduck.timeout * 1000)
+    }, config.unduck.timeout * 1000)
   }
 
 }
@@ -354,28 +362,36 @@ function createMicStrings(inputArray) {
 
 }
 
-function alert(Text="", Duration = 10){
+function alert(Text = "", Duration = 10) {
   console.log('Displaying Alert:', Text)
   xapi.Command.UserInterface.Message.Alert.Display(
     { Duration, Target: "Controller", Text, Title: config.button.name });
 }
 
 
-async function createPanel(){
-  const {icon, color, name}= config.button;
+async function createPanel() {
+  const { icon, color, name, location } = config.button;
   const panelId = config.panelId;
 
   const order = await panelOrder(panelId);
 
-  const values = Object.keys(config.modeNames).map(mode=>{
+  const values = Object.keys(config.modeNames).map(mode => {
     return `<Value><Key>${mode}</Key><Name>${config.modeNames[mode].replace(/&/g, "&amp;")}</Name></Value>`
   });
+
+
+  const mtrDevice = await xapi.Command.MicrosoftTeams.List({ Show: 'Installed' })
+    .then(() => true)
+    .catch(() => false)
+
+
+  const panelLocation = mtrDevice ? (location == 'Hidden' ? location : 'ControlPanel') : location;
 
   const panel = `
     <Extensions>
       <Panel>
         <Origin>local</Origin>
-        <Location>HomeScreenAndCallControls</Location>
+        <Location>${panelLocation}</Location>
         <Icon>${icon}</Icon>
         <Color>${color}</Color>
         <Name>${name}</Name>

@@ -6,8 +6,8 @@
  *                    	Cisco Systems
  * 
  * 
- * Version: 1-1-0
- * Released: 10/06/25
+ * Version: 1-2-0
+ * Released: 02/26/26
  * 
  * Audio Ducking Macro:
  * 
@@ -18,6 +18,9 @@
  * This is useful when you are using voice lift in a room and 
  * would like to duck any ceiling mics while a person using 
  * a voice lift mic is talking.
+ * 
+ * Support for MTR Devices added, now joining an MTR call
+ * will trigger the macro to begin monitoring the audio.
  * 
  * Full Readme, source code and license details for this macro 
  * are available GitHub:

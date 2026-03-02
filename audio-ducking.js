@@ -96,11 +96,14 @@ const micNames = createMicStrings(config.mics);
 const duck = config.duck.map(({ ConnectorType, ConnectorId, SubId }) => ConnectorType + '.' + ConnectorId + (SubId ? '.' + SubId : ''));
 const sampleInterval = 100;
 const averageLogFequency = 20;
+const maxMissingAudioEvents = 100;
+
 
 let gainLevel = 'Gain';
 let ducked = false;
 let unduckTimer;
 let audioEventTimeout;
+let missingAudioEventCounter = 0;
 let listener;
 let micLevels;
 let micLevelAverages;
@@ -211,9 +214,19 @@ function processCallEnd(callType) {
 
 function processAudioEvents(event) {
 
-  audioEventCount = ++audioEventCount;
+  // Clear any Audio Event Timeouts
   clearTimeout(audioEventTimeout);
   audioEventTimeout = null;
+
+  // Count number of audio events for triggering perodic logging
+  audioEventCount = ++audioEventCount;
+
+  // Track number of missing events so we can restart VuMeter if required
+  if (typeof event != 'undefined' && Object.keys(event).length == 0) {
+    missingAudioEventCounter = ++missingAudioEventCounter;
+  } else {
+    missingAudioEventCounter = 0;
+  }
 
   // console.log(event)
 
@@ -264,6 +277,11 @@ function processAudioEvents(event) {
     audioEventCount = 0;
   }
 
+  if (missingAudioEventCounter == maxMissingAudioEvents) {
+    if(config.debug) console.log('Max Missed Audio Events Reached - Restarting Audio Monitor')
+    startMonitor();
+  }
+
   startAudioEventTimeout();
 
 }
@@ -298,10 +316,15 @@ function flattenObject(obj) {
 
 
 function startMonitor() {
+  if (listener) {
+    listener();
+    listener = () => void 0;
+  }
   listener = xapi.Event.Audio.Input.Connectors.on(processAudioEvents);
   const monitoringMicNames = startVuMeterConnectors.map(({ ConnectorType, ConnectorId }) => ConnectorType + '.' + ConnectorId);
   console.log('Starting Audio Monitor:', ...monitoringMicNames);
 
+  missingAudioEventCounter = 0;
   micLevelAverages = createMicLevels(averageLogFequency)
   micLevels = createMicLevels(config.samples)
 

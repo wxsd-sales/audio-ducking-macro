@@ -6,8 +6,8 @@
  *                    	Cisco Systems
  * 
  * 
- * Version: 1-2-0
- * Released: 02/26/26
+ * Version: 1-3-0
+ * Released: 03/02/26
  * 
  * Audio Ducking Macro:
  * 
@@ -19,8 +19,17 @@
  * would like to duck any ceiling mics while a person using 
  * a voice lift mic is talking.
  * 
+ * v1-2-0 Changes:
+ * 
  * Support for MTR Devices added, now joining an MTR call
  * will trigger the macro to begin monitoring the audio.
+ * 
+ * v1-3-0 Changes:
+ * 
+ * Added audio event timeouts to handle situations where the
+ * monitored audio inputs are muted (externally) which causes
+ * no vumeter events and therefore prevents unducking of the mics.
+ * 
  * 
  * Full Readme, source code and license details for this macro 
  * are available GitHub:
@@ -37,11 +46,12 @@ import xapi from 'xapi';
 
 const config = {
   button: {                     // Customise the macros control button name, color and icon
-    name: 'Audio Modes',        // Button and Panel name
-    color: '#f58142',         // Button Color
+    name: 'Audio Modes',        // Button/Panel/Alert Name
+    color: '#f58142',           // Button Color
     icon: 'Sliders',            // Button Icon
     location: 'CallControls'    // Button Location
   },
+  showAlerts: true,             // true = show alert messages on controller, false = don't show alerts
   modeNames: {                  // Customise the macros mode names
     autoDuck: 'Auto Adjust Audience',
     presentersOnly: 'Presenters Only',
@@ -71,6 +81,7 @@ const config = {
     timeout: 2                  // Specify the duration where the monitors mic is low before unducking
   },
   samples: 4,                   // The number of samples taken every 100ms, 4 samples at 100ms = 400ms
+  debug: false,
   panelId: 'audioDucking'
 }
 
@@ -80,60 +91,47 @@ const config = {
 **********************************************************/
 
 
-
 const startVuMeterConnectors = consolidateConnectors(config.mics);
 const micNames = createMicStrings(config.mics);
 const duck = config.duck.map(({ ConnectorType, ConnectorId, SubId }) => ConnectorType + '.' + ConnectorId + (SubId ? '.' + SubId : ''));
+const sampleInterval = 100;
+const averageLogFequency = 20;
 
+let gainLevel = 'Gain';
 let ducked = false;
 let unduckTimer;
+let audioEventTimeout;
 let listener;
 let micLevels;
+let micLevelAverages;
+let audioEventCount = 0;
 let mode;
 let callId;
+
 
 setTimeout(init, 3000);
 
 async function init() {
 
-  micLevels = createMicLevels(config.samples)
+  gainLevel = await checkGainLevel();
+
   await createPanel();
 
   xapi.Event.UserInterface.Extensions.Widget.Action.on(processActions);
 
   xapi.Status.Call.on(({ ghost, Status, id }) => {
-
     if (Status && Status == 'Connected' && callId != id) {
-      console.log('New Call Connected - CallId:', id, '- Setting Mode:', config.defaultMode)
       callId = id;
-      mode = config.defaultMode;
-      xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
-      applyMode();
-
-      alert(`New Call Detected<br>Setting Room Mode To: ${config.modeNames[mode]}<br>Tap On [${config.button.name}] Button To select other modes.`)
-      return
+      return processNewCall('RoomOS');
     }
 
-    if (ghost) return stopMonitor();
+    if (ghost) return processCallEnd('RoomOS');
   });
 
-  xapi.Status.MicrosoftTeams.Calling.InCall.on((value) => {
-    console.log('MTR State Change:', value)
-    const inCall = value == 'True';
-
-    if(inCall) {
-      console.log('New MTR Called Detected - Setting Mode:', config.defaultMode)
-      mode = config.defaultMode;
-      xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
-      applyMode();
-
-      alert(`New MTR Call Detected<br>Setting Room Mode To: ${config.modeNames[mode]}<br>Tap On [${config.button.name}] Button To select other modes.`)
-      return
-    } else {
-      return stopMonitor();
-    }
-
-  })
+  xapi.Status.MicrosoftTeams.Calling.InCall.on((inMTRCall) => {
+    if (inMTRCall == 'True') return processNewCall('MTR');
+    return processCallEnd('MTR');
+  });
 
   const widgets = await xapi.Status.UserInterface.Extensions.Widget.get()
   const selection = widgets.find(widget => widget.WidgetId == config.panelId);
@@ -149,9 +147,10 @@ async function init() {
 
 
 async function applyMode() {
-  console.log('Applying Mode:', mode);
   const inCall = await checkInCall();
   if (!inCall) return
+
+  console.log('Applying Mode:', mode);
 
   if (mode == 'presentersOnly') {
     stopMonitor();
@@ -165,13 +164,17 @@ async function applyMode() {
     return
   }
 
-  if (mode == "autoDuck") return startMonitor();
+  if (mode == "autoDuck") {
+    unduckMics(true);
+    startMonitor();
+  }
 
 }
 
 function processActions({ Type, Value, WidgetId }) {
-  if (Type != 'released') return
-  if (WidgetId != config.panelId) return
+  if (Type != 'released') return          // Ignore none released events
+  if (WidgetId != config.panelId) return  // Ignore events from other widgets
+  if (mode == Value) return                // Ignore events where the use selected the same value
   mode = Value
   applyMode();
 }
@@ -190,20 +193,41 @@ function createMicLevels(samples) {
   return result
 }
 
+function processNewCall(callType) {
+  mode = config.defaultMode;
+  const modeName = config.modeNames[mode];
+  const buttonName = config.button.name;
+  console.log(callType, 'Call Connected - Setting Mode:', config.defaultMode);
+  xapi.Command.UserInterface.Extensions.Widget.SetValue({ WidgetId: config.panelId, Value: mode })
+  applyMode();
+  alert(`New Call Detected<br>Setting Audio Mode To: ${modeName}<br>Tap On [${buttonName}] Button To Select Other Modes.`);
+}
+
+function processCallEnd(callType) {
+  console.log(callType, 'Call Ended - Stopping Monitor');
+  stopMonitor();
+}
+
 
 function processAudioEvents(event) {
 
+  audioEventCount = ++audioEventCount;
+  clearTimeout(audioEventTimeout);
+  audioEventTimeout = null;
+
+  // console.log(event)
+
   const newLevels = flattenObject(event)
 
-  console.log('Levels:', micLevels)
-  console.log('newLevels:', newLevels)
+  //console.log('newLevels:', newLevels)
 
   for (const [micName, levels] of Object.entries(micLevels)) {
     micLevels[micName].shift();
     micLevels[micName].push(newLevels?.[micName] ?? levels[levels.length - 1]);
   }
 
-  console.log('Levels:', micLevels)
+
+  //console.debug('Levels:', micLevels)
 
   let aboveHighThreshold = false;
   let aboveLowThreshold = false;
@@ -214,25 +238,42 @@ function processAudioEvents(event) {
     const sum = levels.reduce((partialSum, a) => partialSum + a, 0)
     const average = sum / levels.length;
     averages[micName] = average;
+    micLevelAverages[micName].shift();
+    micLevelAverages[micName].push(average);
     aboveHighThreshold = aboveHighThreshold ? aboveHighThreshold : average > config.threshold.high
     aboveLowThreshold = aboveLowThreshold ? aboveLowThreshold : average > config.threshold.low
   }
 
   if (aboveHighThreshold) {
-    if (unduckTimer) console.error("Above Average")
+    if (unduckTimer) console.error("Audio Levels Above Average")
     clearTimeout(unduckTimer)
     unduckTimer = null
     duckMics();
   }
 
   if (!aboveLowThreshold && !unduckTimer) {
-    console.warn("Below Average")
+    console.warn("Audio Levels Below Average")
     unduckTimer = setTimeout(() => {
-      console.log('Unducking Timer')
+      if (config.debug) console.log('Unducking Timeout Triggered')
       unduckMics();
     }, config.unduck.timeout * 1000)
   }
 
+  if (audioEventCount == averageLogFequency) {
+    if (config.debug) console.log('Audio Level Averages:\n' + JSON.stringify(micLevelAverages))
+    audioEventCount = 0;
+  }
+
+  startAudioEventTimeout();
+
+}
+
+async function checkGainLevel() {
+  const inputs = await xapi.Config.Audio.Input.get();
+  const { Ethernet, Microphone, USBMicrophone } = inputs;
+  if (Ethernet) return typeof Ethernet?.[0]?.Channel?.[0].Gain != 'undefined' ? 'Gain' : 'Level'
+  if (Microphone) return Microphone.some(mic => typeof mic?.Gain != 'undefined') ? 'Gain' : 'Level'
+  if (USBMicrophone) return typeof USBMicrophone?.[0]?.Gain != 'undefined' ? 'Gain' : 'Level'
 }
 
 function flattenObject(obj) {
@@ -260,17 +301,24 @@ function startMonitor() {
   listener = xapi.Event.Audio.Input.Connectors.on(processAudioEvents);
   const monitoringMicNames = startVuMeterConnectors.map(({ ConnectorType, ConnectorId }) => ConnectorType + '.' + ConnectorId);
   console.log('Starting Audio Monitor:', ...monitoringMicNames);
+
+  micLevelAverages = createMicLevels(averageLogFequency)
+  micLevels = createMicLevels(config.samples)
+
   startVuMeterConnectors.forEach(({ ConnectorId, ConnectorType }) => {
     if (ConnectorId) {
-      xapi.Command.Audio.VuMeter.Start({ ConnectorId, ConnectorType, IntervalMs: 100, Source: "BeforeAEC" });
+      xapi.Command.Audio.VuMeter.Start({ ConnectorId, ConnectorType, IntervalMs: sampleInterval, Source: "BeforeAEC" });
     } else {
-      xapi.Command.Audio.VuMeter.Start({ ConnectorType, IntervalMs: 100, Source: "BeforeAEC" });
+      xapi.Command.Audio.VuMeter.Start({ ConnectorType, IntervalMs: sampleInterval, Source: "BeforeAEC" });
     }
   })
+
+  startAudioEventTimeout();
 }
 
 function stopMonitor() {
   console.log('Stopping Audio Monitor');
+  clearTimeout(audioEventTimeout);
   if (listener) {
     listener();
     listener = () => void 0;
@@ -286,12 +334,23 @@ function duckMics() {
   ducked = true;
 }
 
-function unduckMics() {
-  if (!ducked) return
+function unduckMics(forceUnduck = false) {
+  if (!ducked && !forceUnduck) return
   console.log('Unducking Mics:', duck);
   const level = config.levels.unduck;
   config.duck.forEach(mic => setInputLevelGain({ level, ...mic }))
   ducked = false;
+}
+
+
+function startAudioEventTimeout() {
+  clearTimeout(audioEventTimeout);
+  const timeout = 2 * sampleInterval;
+  if (config.debug) console.debug('Starting Audio Event Timemout - delay:', timeout, ' ms');
+  audioEventTimeout = setTimeout(() => {
+    if (config.debug) console.debug('Audio Event Timeout Reached - Triggering Audio Events Process')
+    processAudioEvents({})
+  }, timeout);
 }
 
 async function setInputLevelGain({ ConnectorType, ConnectorId, SubId, level }) {
@@ -300,34 +359,13 @@ async function setInputLevelGain({ ConnectorType, ConnectorId, SubId, level }) {
     throw new Error(`Unsupported Audio Input Type [${ConnectorType}]`)
   }
   const mic = `${ConnectorType}.${ConnectorId}${SubId ? '.' + SubId : ''}`
-  console.log(`Setting ${mic} - Level: [${level}]`)
 
   if (SubId) {
-    try {
-      await xapi.Config.Audio.Input[ConnectorType][ConnectorId].Channel[SubId].Gain.set(level);
-      return console.log('Mic:', mic, '- Gain:', level, ' - Set')
-    } catch (e) {
-
-      try {
-        await xapi.Config.Audio.Input[ConnectorType][ConnectorId].Channel[SubId].Level.set(level);
-        return console.log('Mic:', mic, '- Gain:', level, ' - Set')
-      } catch (e) {
-        return console.warn('Error Setting Mic:', mic, '- Level:', level)
-      }
-    }
-
+    await xapi.Config.Audio.Input[ConnectorType][ConnectorId].Channel[SubId][gainLevel].set(level);
+    if (config.debug) console.log(`Mic: ${mic} - ${gainLevel}: ${level}`);
   } else {
-    try {
-      await xapi.Config.Audio.Input[ConnectorType][ConnectorId].Gain.set(level);
-      return console.log('Mic:', mic, '- Level:', level, ' - Set')
-    } catch (e) {
-      try {
-        await xapi.Config.Audio.Input[ConnectorType][ConnectorId].Level.set(level);
-        return console.log('Mic:', mic, '- Level:', level, ' - Set')
-      } catch (e) {
-        return console.warn('Error Setting Mic:', mic, '- Level:', level)
-      }
-    }
+    await xapi.Config.Audio.Input[ConnectorType][ConnectorId][gainLevel].set(level);
+    if (config.debug) console.log(`Mic: ${mic} - ${gainLevel}: ${level}`);
   }
 }
 
@@ -377,6 +415,7 @@ function createMicStrings(inputArray) {
 }
 
 function alert(Text = "", Duration = 10) {
+  if (!config.showAlerts) return
   console.log('Displaying Alert:', Text)
   xapi.Command.UserInterface.Message.Alert.Display(
     { Duration, Target: "Controller", Text, Title: config.button.name });
